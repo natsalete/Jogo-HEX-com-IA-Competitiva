@@ -432,3 +432,5 @@ Para reportar bugs ou solicitar features:
 ![Go](https://img.shields.io/badge/Powered%20by-Go-00ADD8)
 
 </div>
+#   J o g o - H E X - c o m - I A - C o m p e t i t i v a  
+ 
