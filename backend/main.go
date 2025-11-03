@@ -26,17 +26,17 @@ type Board struct {
 }
 
 type AIRequest struct {
-	Board     [][]string `json:"board"`
-	Player    string     `json:"player"`
-	Algorithm string     `json:"algorithm"`
-	Depth     int        `json:"depth"`
+	Board     [][]string `json:"board"`     // Tabuleiro 7x7
+	Player    string     `json:"player"`    // "blue" ou "red"
+	Algorithm string     `json:"algorithm"` // "minimax" ou "alphabeta"
+	Depth     int        `json:"depth"`     // Profundidade de busca
 }
 
 type AIResponse struct {
-	Move          Cell   `json:"move"`
-	NodesExplored int    `json:"nodesExplored"`
-	TimeMs        int64  `json:"timeMs"`
-	Score         int    `json:"score"`
+	Move          Cell   `json:"move"`          // Melhor movimento encontrado
+	NodesExplored int    `json:"nodesExplored"` // Nós explorados na árvore
+	TimeMs        int64  `json:"timeMs"`        // Tempo de processamento
+	Score         int    `json:"score"`         // Pontuação heurística
 }
 
 type GameState struct {
@@ -53,7 +53,6 @@ type ScoredMove struct {
 	Score int
 }
 
-// Cache para distâncias (otimização)
 var distanceCache map[string]int
 
 func init() {
@@ -70,7 +69,7 @@ func main() {
 	http.HandleFunc("/api/check-winner", corsMiddleware(handleCheckWinner))
 	http.HandleFunc("/", corsMiddleware(serveIndex))
 
-	fmt.Println("🎮 Servidor HEX Game INTELIGENTE rodando em http://localhost:8080")
+	fmt.Println("🎮 Servidor HEX Game rodando em http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
@@ -95,6 +94,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 // HANDLERS DA API
 // ============================================
 
+// handleAIMove processa requisições de movimento da IA
 func handleAIMove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
@@ -117,6 +117,7 @@ func handleAIMove(w http.ResponseWriter, r *http.Request) {
 		OpponentPlayer: getOpponent(req.Player),
 	}
 
+	// Seleciona algoritmo e calcula melhor movimento
 	var bestMove ScoredMove
 	if req.Algorithm == "alphabeta" {
 		bestMove = findBestMoveAlphaBeta(gameState, req.Depth)
@@ -127,10 +128,7 @@ func handleAIMove(w http.ResponseWriter, r *http.Request) {
 	elapsed := time.Since(startTime).Milliseconds()
 
 	response := AIResponse{
-		Move: Cell{
-			Row: bestMove.Row,
-			Col: bestMove.Col,
-		},
+		Move:          Cell{Row: bestMove.Row, Col: bestMove.Col},
 		NodesExplored: gameState.NodesExplored,
 		TimeMs:        elapsed,
 		Score:         bestMove.Score,
@@ -175,16 +173,18 @@ func handleCheckWinner(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============================================
-// ALGORITMO MINIMAX COM ALFA-BETA
+// MINIMAX COM PODA ALFA-BETA
 // ============================================
 
+// findBestMoveAlphaBeta encontra o melhor movimento usando Alfa-Beta Pruning
+// Otimiza o Minimax eliminando ramos que não afetam a decisão final
 func findBestMoveAlphaBeta(state *GameState, depth int) ScoredMove {
 	bestScore := math.MinInt32
 	var bestMove ScoredMove
-	alpha := math.MinInt32
-	beta := math.MaxInt32
+	alpha := math.MinInt32 // Melhor valor garantido para MAX
+	beta := math.MaxInt32  // Melhor valor garantido para MIN
 
-	moves := getSmartMoves(state, 20) // Mais movimentos para melhor escolha
+	moves := getSmartMoves(state, 20) // Seleciona 20 melhores movimentos candidatos
 
 	for _, move := range moves {
 		state.Board[move.Row][move.Col] = state.CurrentPlayer
@@ -199,25 +199,27 @@ func findBestMoveAlphaBeta(state *GameState, depth int) ScoredMove {
 			alpha = score
 		}
 		if beta <= alpha {
-			break
+			break // Poda: ramo não será escolhido
 		}
 	}
 
 	return bestMove
 }
 
+// alphaBeta implementa a poda alfa-beta recursivamente
 func alphaBeta(state *GameState, depth, alpha, beta int, isMaximizing bool) int {
 	state.NodesExplored++
 
+	// Verifica condições de parada
 	winner := getWinner(state.Board)
 	if winner == state.CurrentPlayer {
-		return 100000 + depth*100
+		return 100000 + depth*100 // Vitória: pontuação alta + bônus por profundidade
 	}
 	if winner == state.OpponentPlayer {
-		return -100000 - depth*100
+		return -100000 - depth*100 // Derrota: pontuação baixa
 	}
 	if depth == 0 {
-		return evaluateBoardSmart(state)
+		return evaluateBoardSmart(state) // Folha da árvore: usa heurística
 	}
 
 	moves := getSmartMoves(state, 15)
@@ -246,7 +248,7 @@ func alphaBeta(state *GameState, depth, alpha, beta int, isMaximizing bool) int 
 				alpha = score
 			}
 			if beta <= alpha {
-				break
+				break // Poda beta: MIN já tem opção melhor
 			}
 		}
 		return maxScore
@@ -264,12 +266,16 @@ func alphaBeta(state *GameState, depth, alpha, beta int, isMaximizing bool) int 
 				beta = score
 			}
 			if beta <= alpha {
-				break
+				break // Poda alpha: MAX já tem opção melhor
 			}
 		}
 		return minScore
 	}
 }
+
+// ============================================
+// MINIMAX PURO (sem poda)
+// ============================================
 
 func findBestMoveMinimax(state *GameState, depth int) ScoredMove {
 	bestScore := math.MinInt32
@@ -343,47 +349,50 @@ func minimax(state *GameState, depth int, isMaximizing bool) int {
 }
 
 // ============================================
-// HEURÍSTICA INTELIGENTE - CONCEITOS DO HEX
+// FUNÇÃO HEURÍSTICA AVANÇADA
 // ============================================
 
+// evaluateBoardSmart avalia a qualidade de um estado do tabuleiro
+// Usa 5 critérios estratégicos com pesos balanceados
 func evaluateBoardSmart(state *GameState) int {
 	myScore := evaluatePlayerPosition(state, state.CurrentPlayer)
 	oppScore := evaluatePlayerPosition(state, state.OpponentPlayer)
 	return myScore - oppScore
 }
 
+// evaluatePlayerPosition calcula pontuação estratégica de um jogador
 func evaluatePlayerPosition(state *GameState, player string) int {
 	score := 0
 	
-	// 1. DISTÂNCIA MÍNIMA ATÉ O OBJETIVO (peso altíssimo)
+	// 1. Distância até vitória (peso: 1000) - Quanto menor, melhor
 	minDist := calculateMinDistance(state.Board, player, state.Size)
-	score += (1000 - minDist*100) // Quanto menor distância, melhor
+	score += (1000 - minDist*100)
 	
-	// 2. COMPONENTES CONECTADOS (força da posição)
+	// 2. Componentes conectados (peso: -200) - Menos grupos = melhor
 	components := countConnectedComponents(state.Board, player, state.Size)
-	score -= components * 200 // Menos componentes = mais conectado = melhor
+	score -= components * 200
 	
-	// 3. MAIOR CADEIA CONECTADA
+	// 3. Maior cadeia (peso: 150) - Cadeias longas são vantajosas
 	longestChain := findLongestChain(state.Board, player, state.Size)
 	score += longestChain * 150
 	
-	// 4. CONTROLE DO CENTRO
+	// 4. Controle do centro (peso: 50) - Centro oferece mais opções
 	centerControl := evaluateCenterControl(state.Board, player, state.Size)
 	score += centerControl * 50
 	
-	// 5. PONTES VIRTUAIS (conexões de 2 espaços)
+	// 5. Pontes virtuais (peso: 80) - Conexões potenciais
 	bridges := countVirtualBridges(state.Board, player, state.Size)
 	score += bridges * 80
 	
 	return score
 }
 
-// Calcula distância mínima até completar o objetivo
+// calculateMinDistance usa BFS para calcular menor caminho até o objetivo
 func calculateMinDistance(board [][]string, player string, size int) int {
 	minDist := math.MaxInt32
 	
 	if player == "blue" {
-		// Azul: menor distância da direita até a esquerda
+		// Azul: conectar esquerda → direita
 		for row := 0; row < size; row++ {
 			for col := 0; col < size; col++ {
 				if board[row][col] == player {
@@ -395,7 +404,7 @@ func calculateMinDistance(board [][]string, player string, size int) int {
 			}
 		}
 	} else {
-		// Vermelho: menor distância de baixo até cima
+		// Vermelho: conectar cima → baixo
 		for row := 0; row < size; row++ {
 			for col := 0; col < size; col++ {
 				if board[row][col] == player {
@@ -409,12 +418,12 @@ func calculateMinDistance(board [][]string, player string, size int) int {
 	}
 	
 	if minDist == math.MaxInt32 {
-		return size * 2 // Sem peças no tabuleiro
+		return size * 2
 	}
 	return minDist
 }
 
-// BFS para encontrar menor distância até o objetivo
+// bfsMinDistance executa busca em largura para encontrar menor distância
 func bfsMinDistance(board [][]string, startRow, startCol int, player string, size int, isBlue bool) int {
 	visited := make([][]bool, size)
 	for i := range visited {
@@ -436,12 +445,10 @@ func bfsMinDistance(board [][]string, startRow, startCol int, player string, siz
 			return curr.dist
 		}
 		
-		// Explora vizinhos
 		neighbors := getNeighbors(curr.row, curr.col, size)
 		for _, n := range neighbors {
 			if !visited[n.Row][n.Col] {
 				visited[n.Row][n.Col] = true
-				// Conta apenas células vazias ou do jogador
 				if board[n.Row][n.Col] == player {
 					queue = append(queue, struct{ row, col, dist int }{n.Row, n.Col, curr.dist})
 				} else if board[n.Row][n.Col] == "" {
@@ -454,7 +461,7 @@ func bfsMinDistance(board [][]string, startRow, startCol int, player string, siz
 	return math.MaxInt32
 }
 
-// Conta componentes desconectados
+// countConnectedComponents conta grupos isolados de peças (usar DFS)
 func countConnectedComponents(board [][]string, player string, size int) int {
 	visited := make([][]bool, size)
 	for i := range visited {
@@ -483,7 +490,7 @@ func dfsMarkComponent(board [][]string, visited [][]bool, row, col int, player s
 	}
 }
 
-// Encontra maior cadeia conectada
+// findLongestChain encontra maior cadeia conectada de peças
 func findLongestChain(board [][]string, player string, size int) int {
 	visited := make([][]bool, size)
 	for i := range visited {
@@ -516,7 +523,7 @@ func dfsCountChain(board [][]string, visited [][]bool, row, col int, player stri
 	return count
 }
 
-// Avalia controle do centro
+// evaluateCenterControl bonifica posições centrais (mais opções estratégicas)
 func evaluateCenterControl(board [][]string, player string, size int) int {
 	score := 0
 	center := size / 2
@@ -531,7 +538,7 @@ func evaluateCenterControl(board [][]string, player string, size int) int {
 	return score
 }
 
-// Conta pontes virtuais (duas peças com célula vazia entre elas)
+// countVirtualBridges detecta pontes (2 peças com célula vazia entre elas)
 func countVirtualBridges(board [][]string, player string, size int) int {
 	bridges := 0
 	for row := 0; row < size; row++ {
@@ -540,7 +547,6 @@ func countVirtualBridges(board [][]string, player string, size int) int {
 				neighbors := getNeighbors(row, col, size)
 				for _, n := range neighbors {
 					if board[n.Row][n.Col] == "" {
-						// Verifica se há outra peça do outro lado
 						nextNeighbors := getNeighbors(n.Row, n.Col, size)
 						for _, nn := range nextNeighbors {
 							if board[nn.Row][nn.Col] == player && (nn.Row != row || nn.Col != col) {
@@ -552,13 +558,15 @@ func countVirtualBridges(board [][]string, player string, size int) int {
 			}
 		}
 	}
-	return bridges / 2 // Divide por 2 pois conta cada ponte duas vezes
+	return bridges / 2 // Cada ponte é contada duas vezes
 }
 
 // ============================================
 // SELEÇÃO INTELIGENTE DE MOVIMENTOS
 // ============================================
 
+// getSmartMoves seleciona os N melhores movimentos candidatos
+// Reduz fator de ramificação de 49 → 15-20 movimentos
 func getSmartMoves(state *GameState, maxMoves int) []Cell {
 	allMoves := getValidMoves(state.Board)
 	
@@ -566,6 +574,7 @@ func getSmartMoves(state *GameState, maxMoves int) []Cell {
 		return allMoves
 	}
 
+	// Avalia qualidade de cada movimento
 	scoredMoves := make([]ScoredMove, len(allMoves))
 	for i, move := range allMoves {
 		state.Board[move.Row][move.Col] = state.CurrentPlayer
@@ -574,6 +583,7 @@ func getSmartMoves(state *GameState, maxMoves int) []Cell {
 		scoredMoves[i] = ScoredMove{Row: move.Row, Col: move.Col, Score: score}
 	}
 
+	// Ordena e retorna os melhores
 	sort.Slice(scoredMoves, func(i, j int) bool {
 		return scoredMoves[i].Score > scoredMoves[j].Score
 	})
@@ -585,13 +595,14 @@ func getSmartMoves(state *GameState, maxMoves int) []Cell {
 	return result
 }
 
+// evaluateMoveQuality avalia rapidamente a qualidade de um movimento
 func evaluateMoveQuality(state *GameState, row, col int) int {
 	score := 0
 	player := state.CurrentPlayer
 	opponent := state.OpponentPlayer
 	size := state.Size
 	
-	// 1. Conectividade com peças existentes
+	// Conectividade: conectar com peças próprias é crucial
 	neighbors := getNeighbors(row, col, size)
 	myNeighbors := 0
 	oppNeighbors := 0
@@ -602,17 +613,17 @@ func evaluateMoveQuality(state *GameState, row, col int) int {
 			oppNeighbors++
 		}
 	}
-	score += myNeighbors * 300
-	score += oppNeighbors * 200 // Bloquear também é importante
+	score += myNeighbors * 300   // Conectar peças próprias
+	score += oppNeighbors * 200  // Bloquear oponente
 	
-	// 2. Progresso em direção ao objetivo
+	// Progresso em direção ao objetivo
 	if player == "blue" {
-		score += col * 50
+		score += col * 50 // Azul: avançar para direita
 	} else {
-		score += row * 50
+		score += row * 50 // Vermelho: avançar para baixo
 	}
 	
-	// 3. Proximidade ao centro
+	// Proximidade ao centro
 	center := size / 2
 	distToCenter := abs(row-center) + abs(col-center)
 	score += (size - distToCenter) * 20
@@ -624,6 +635,7 @@ func evaluateMoveQuality(state *GameState, row, col int) int {
 // FUNÇÕES AUXILIARES
 // ============================================
 
+// getNeighbors retorna os 6 vizinhos hexagonais de uma célula
 func getNeighbors(row, col, size int) []Cell {
 	directions := [][]int{
 		{-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0},
@@ -667,6 +679,7 @@ func checkWinner(board [][]string) string {
 	return ""
 }
 
+// hasPathLeftToRight verifica se azul conectou esquerda → direita (DFS)
 func hasPathLeftToRight(board [][]string, player string) bool {
 	size := len(board)
 	visited := make([][]bool, size)
@@ -701,6 +714,7 @@ func dfsLR(board [][]string, visited [][]bool, row, col int, player string, size
 	return false
 }
 
+// hasPathTopToBottom verifica se vermelho conectou cima → baixo (DFS)
 func hasPathTopToBottom(board [][]string, player string) bool {
 	size := len(board)
 	visited := make([][]bool, size)
