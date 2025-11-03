@@ -1,554 +1,454 @@
- // ============================================
-        // VARIÁVEIS GLOBAIS
-        // ============================================
-        
-        const BOARD_SIZE = 7; // Tabuleiro fixo 7x7
-        const HEX_WIDTH = 40;
-        const HEX_HEIGHT = 46;
-        const HEX_SPACING_X = 35;
-        const HEX_SPACING_Y = 40;
+// ============================================
+// CONFIGURAÇÕES E VARIÁVEIS GLOBAIS
+// ============================================
 
-        let board = [];
-        let currentPlayer = 'blue';
-        let gameActive = true;
-        let moveCount = 0;
-        let gameMode = 'pvc';
-        let aiAlgorithm = 'alphabeta';
-        let depth = 2;
-        let nodesExplored = 0;
+const API_URL = "http://localhost:8080/api";
+const BOARD_SIZE = 7;
+const HEX_WIDTH = 40;
+const HEX_HEIGHT = 46;
+const HEX_SPACING_X = 35;
+const HEX_SPACING_Y = 40;
 
-        // ============================================
-        // INICIALIZAÇÃO E RENDERIZAÇÃO
-        // ============================================
+let board = [];
+let currentPlayer = "blue";
+let gameActive = true;
+let moveCount = 0;
+let gameMode = "pvc";
+let aiAlgorithm = "alphabeta";
+let depth = 3;
+let serverConnected = false;
+let aiProcessing = false;
+let winningPath = []; // NOVO: armazena o caminho vencedor
 
-        /**
-         * Inicializa o tabuleiro do jogo
-         */
-        function initBoard() {
-            // Obtém configurações da interface
-            gameMode = document.getElementById('gameMode').value;
-            aiAlgorithm = document.getElementById('aiAlgorithm').value;
-            depth = parseInt(document.getElementById('depth').value);
-            
-            // Reseta estado do jogo
-            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-            currentPlayer = 'blue';
-            gameActive = true;
-            moveCount = 0;
-            nodesExplored = 0;
-            
-            updateStatus();
-            renderBoard();
-        }
+// ============================================
+// VERIFICAÇÃO DE CONEXÃO COM SERVIDOR
+// ============================================
 
-        /**
-         * Renderiza o tabuleiro hexagonal na tela
-         */
-        function renderBoard() {
-            const boardElement = document.getElementById('board');
-            boardElement.innerHTML = '';
-            
-            // Calcula dimensões totais do tabuleiro
-            const totalWidth = (BOARD_SIZE + BOARD_SIZE - 1) * HEX_SPACING_X + HEX_WIDTH;
-            const totalHeight = BOARD_SIZE * HEX_SPACING_Y + HEX_HEIGHT;
-            
-            boardElement.style.width = totalWidth + 'px';
-            boardElement.style.height = totalHeight + 'px';
+async function checkServerConnection() {
+  try {
+    const response = await fetch(`${API_URL}/check-winner`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        size: BOARD_SIZE,
+        cells: Array(BOARD_SIZE)
+          .fill(null)
+          .map(() => Array(BOARD_SIZE).fill("")),
+      }),
+    });
 
-            // Cria todos os hexágonos
-            for (let row = 0; row < BOARD_SIZE; row++) {
-                for (let col = 0; col < BOARD_SIZE; col++) {
-                    const hex = createHexagon(row, col);
-                    boardElement.appendChild(hex);
-                }
-            }
-        }
+    if (response.ok) {
+      serverConnected = true;
+      updateServerStatus("connected");
+      return true;
+    }
+  } catch (error) {
+    serverConnected = false;
+    updateServerStatus("error");
+    return false;
+  }
+}
 
-        /**
-         * Cria um hexágono individual
-         * @param {number} row - Linha do hexágono
-         * @param {number} col - Coluna do hexágono
-         * @returns {HTMLElement} Elemento do hexágono
-         */
-        function createHexagon(row, col) {
-            const hex = document.createElement('div');
-            hex.className = 'hex';
-            hex.dataset.row = row;
-            hex.dataset.col = col;
-            
-            // Calcula posição do hexágono (padrão hexagonal)
-            const x = col * HEX_SPACING_X + row * HEX_SPACING_X;
-            const y = row * HEX_SPACING_Y;
-            
-            hex.style.left = x + 'px';
-            hex.style.top = y + 'px';
+function updateServerStatus(status) {
+  const statusEl = document.getElementById("serverStatus");
+  const startBtn = document.getElementById("startBtn");
 
-            // Cria SVG do hexágono
-            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svg.setAttribute('width', HEX_WIDTH);
-            svg.setAttribute('height', HEX_HEIGHT);
-            svg.setAttribute('viewBox', '0 0 40 46');
+  if (status === "connected") {
+    statusEl.className = "server-status connected";
+    statusEl.innerHTML =
+      '<strong>✅ Servidor Go conectado</strong><div style="margin-top: 5px; font-size: 0.85em;">Backend pronto em http://localhost:8080</div>';
+    startBtn.disabled = false;
+  } else if (status === "error") {
+    statusEl.className = "server-status error";
+    statusEl.innerHTML =
+      '<strong>❌ Servidor Go não encontrado</strong><div style="margin-top: 5px; font-size: 0.85em;">Execute: cd server && go run main.go</div>';
+    startBtn.disabled = true;
+  } else {
+    statusEl.className = "server-status";
+    statusEl.innerHTML =
+      '<strong>🔄 Conectando ao servidor...</strong><div style="margin-top: 5px; font-size: 0.85em;">http://localhost:8080</div>';
+  }
+}
 
-            const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-            polygon.setAttribute('points', '20,2 38,12 38,34 20,44 2,34 2,12');
-            polygon.setAttribute('class', 'hex-polygon');
-            
-            svg.appendChild(polygon);
-            hex.appendChild(svg);
+// ============================================
+// INICIALIZAÇÃO E RENDERIZAÇÃO
+// ============================================
 
-            // Aplica cor se a célula estiver ocupada
-            if (board[row][col]) {
-                hex.classList.add(board[row][col]);
-                hex.classList.add('disabled');
-            } else {
-                hex.addEventListener('click', () => handleHexClick(row, col));
-            }
+function initBoard() {
+  gameMode = document.getElementById("gameMode").value;
+  aiAlgorithm = document.getElementById("aiAlgorithm").value;
+  depth = parseInt(document.getElementById("depth").value);
 
-            return hex;
-        }
+  board = Array(BOARD_SIZE)
+    .fill(null)
+    .map(() => Array(BOARD_SIZE).fill(""));
+  currentPlayer = "blue";
+  gameActive = true;
+  moveCount = 0;
+  aiProcessing = false;
+  winningPath = []; // NOVO: limpa caminho vencedor
 
-        // ============================================
-        // LÓGICA DE JOGADAS
-        // ============================================
+  updateStatus();
+  renderBoard();
+}
 
-        /**
-         * Manipula clique em um hexágono
-         */
-        function handleHexClick(row, col) {
-            // Valida se a jogada é permitida
-            if (!gameActive || board[row][col]) return;
-            if (gameMode === 'pvc' && currentPlayer === 'red') return;
-            if (gameMode === 'cvc') return;
+function renderBoard() {
+  const boardElement = document.getElementById("board");
+  boardElement.innerHTML = "";
 
-            makeMove(row, col);
-        }
+  const totalWidth = (BOARD_SIZE + BOARD_SIZE - 1) * HEX_SPACING_X + HEX_WIDTH;
+  const totalHeight = BOARD_SIZE * HEX_SPACING_Y + HEX_HEIGHT;
 
-        /**
-         * Executa uma jogada no tabuleiro
-         */
-        function makeMove(row, col) {
-            board[row][col] = currentPlayer;
-            moveCount++;
-            updateStatus();
-            renderBoard();
+  boardElement.style.width = totalWidth + "px";
+  boardElement.style.height = totalHeight + "px";
 
-            // Verifica vitória
-            if (checkWinner(currentPlayer)) {
-                gameActive = false;
-                showWinner(currentPlayer);
-                return;
-            }
+  for (let row = 0; row < BOARD_SIZE; row++) {
+    for (let col = 0; col < BOARD_SIZE; col++) {
+      const hex = createHexagon(row, col);
+      boardElement.appendChild(hex);
+    }
+  }
+}
 
-            // Alterna jogador
-            currentPlayer = currentPlayer === 'blue' ? 'red' : 'blue';
-            updateStatus();
+function createHexagon(row, col) {
+  const hex = document.createElement("div");
+  hex.className = "hex";
+  hex.dataset.row = row;
+  hex.dataset.col = col;
 
-            // Ativa IA se necessário
-            if (gameMode === 'pvc' && currentPlayer === 'red' && gameActive) {
-                setTimeout(aiMove, 500);
-            } else if (gameMode === 'cvc' && gameActive) {
-                setTimeout(aiMove, 800);
-            }
-        }
+  const x = col * HEX_SPACING_X + row * HEX_SPACING_X;
+  const y = row * HEX_SPACING_Y;
 
-        // ============================================
-        // INTELIGÊNCIA ARTIFICIAL
-        // ============================================
+  hex.style.left = x + "px";
+  hex.style.top = y + "px";
 
-        /**
-         * Executa movimento da IA
-         */
-        function aiMove() {
-            const startTime = performance.now();
-            nodesExplored = 0;
-            
-            // Escolhe algoritmo
-            let bestMove;
-            if (aiAlgorithm === 'minimax') {
-                bestMove = findBestMoveMinimax();
-            } else {
-                bestMove = findBestMoveAlphaBeta();
-            }
-            
-            const endTime = performance.now();
-            const aiTime = (endTime - startTime).toFixed(2);
-            
-            // Atualiza métricas
-            document.getElementById('aiTime').textContent = aiTime + ' ms';
-            document.getElementById('nodesExplored').textContent = nodesExplored;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", HEX_WIDTH);
+  svg.setAttribute("height", HEX_HEIGHT);
+  svg.setAttribute("viewBox", "0 0 40 46");
 
-            if (bestMove) {
-                makeMove(bestMove.row, bestMove.col);
-            }
-        }
+  const polygon = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "polygon"
+  );
+  polygon.setAttribute("points", "20,2 38,12 38,34 20,44 2,34 2,12");
+  polygon.setAttribute("class", "hex-polygon");
 
-        /**
-         * Encontra melhor jogada usando Minimax puro
-         */
-        function findBestMoveMinimax() {
-            let bestScore = -Infinity;
-            let bestMove = null;
+  svg.appendChild(polygon);
+  hex.appendChild(svg);
 
-            const moves = getValidMoves();
-            
-            for (const move of moves) {
-                board[move.row][move.col] = currentPlayer;
-                const score = minimax(depth - 1, false);
-                board[move.row][move.col] = null;
+  if (board[row][col]) {
+    hex.classList.add(board[row][col]);
+    hex.classList.add("disabled");
 
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = move;
-                }
-            }
+    // NOVO: destaca caminho vencedor
+    if (isInWinningPath(row, col)) {
+      hex.classList.add("winning-path");
+    }
+  } else if (!aiProcessing) {
+    hex.addEventListener("click", () => handleHexClick(row, col));
+  }
 
-            return bestMove;
-        }
+  return hex;
+}
 
-        /**
-         * Algoritmo Minimax recursivo
-         * @param {number} depthLeft - Profundidade restante
-         * @param {boolean} isMaximizing - Se é turno do maximizador
-         */
-        function minimax(depthLeft, isMaximizing) {
-            nodesExplored++;
+// NOVO: verifica se célula está no caminho vencedor
+function isInWinningPath(row, col) {
+  return winningPath.some((cell) => cell.row === row && cell.col === col);
+}
 
-            // Verifica condições de parada
-            const winner = getWinner();
-            if (winner === currentPlayer) return 1000 + depthLeft;
-            if (winner === getOpponent(currentPlayer)) return -1000 - depthLeft;
-            if (depthLeft === 0) return evaluateBoard();
+// ============================================
+// LÓGICA DE JOGADAS
+// ============================================
 
-            const player = isMaximizing ? currentPlayer : getOpponent(currentPlayer);
-            let bestScore = isMaximizing ? -Infinity : Infinity;
-            const moves = getValidMoves();
+function handleHexClick(row, col) {
+  if (!gameActive || board[row][col] || aiProcessing) return;
+  if (gameMode === "pvc" && currentPlayer === "red") return;
+  if (gameMode === "cvc") return;
+  if (!serverConnected) {
+    alert("Servidor Go não conectado! Execute: cd server && go run main.go");
+    return;
+  }
 
-            // Explora todos os movimentos possíveis
-            for (const move of moves) {
-                board[move.row][move.col] = player;
-                const score = minimax(depthLeft - 1, !isMaximizing);
-                board[move.row][move.col] = null;
+  makeMove(row, col);
+}
 
-                if (isMaximizing) {
-                    bestScore = Math.max(bestScore, score);
-                } else {
-                    bestScore = Math.min(bestScore, score);
-                }
-            }
+async function makeMove(row, col) {
+  board[row][col] = currentPlayer;
+  moveCount++;
+  updateStatus();
+  renderBoard();
 
-            return bestScore;
-        }
+  // Verifica vitória usando API do servidor
+  const winner = await checkWinnerAPI();
+  if (winner) {
+    gameActive = false;
+    // NOVO: encontra e anima caminho vencedor
+    await findAndAnimateWinningPath(winner);
+    showWinner(winner);
+    return;
+  }
 
-        /**
-         * Encontra melhor jogada usando Minimax com Poda Alfa-Beta
-         */
-        function findBestMoveAlphaBeta() {
-            let bestScore = -Infinity;
-            let bestMove = null;
-            let alpha = -Infinity;
-            let beta = Infinity;
+  currentPlayer = currentPlayer === "blue" ? "red" : "blue";
+  updateStatus();
 
-            const moves = getValidMoves();
-            
-            for (const move of moves) {
-                board[move.row][move.col] = currentPlayer;
-                const score = alphaBeta(depth - 1, alpha, beta, false);
-                board[move.row][move.col] = null;
+  if (gameMode === "pvc" && currentPlayer === "red" && gameActive) {
+    setTimeout(aiMove, 500);
+  } else if (gameMode === "cvc" && gameActive) {
+    setTimeout(aiMove, 800);
+  }
+}
 
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = move;
-                }
-                alpha = Math.max(alpha, score);
-            }
+// ============================================
+// NOVO: DETECÇÃO E ANIMAÇÃO DO CAMINHO VENCEDOR
+// ============================================
 
-            return bestMove;
-        }
+async function findAndAnimateWinningPath(winner) {
+  winningPath = findWinningPath(winner);
 
-        /**
-         * Algoritmo Alfa-Beta (Minimax otimizado)
-         * @param {number} depthLeft - Profundidade restante
-         * @param {number} alpha - Melhor valor para maximizador
-         * @param {number} beta - Melhor valor para minimizador
-         * @param {boolean} isMaximizing - Se é turno do maximizador
-         */
-        function alphaBeta(depthLeft, alpha, beta, isMaximizing) {
-            nodesExplored++;
+  // Anima cada célula do caminho com delay progressivo
+  for (let i = 0; i < winningPath.length; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 100)); // 100ms entre cada célula
+    renderBoard(); // Re-renderiza para aplicar a classe winning-path
+  }
+}
 
-            // Verifica condições de parada
-            const winner = getWinner();
-            if (winner === currentPlayer) return 1000 + depthLeft;
-            if (winner === getOpponent(currentPlayer)) return -1000 - depthLeft;
-            if (depthLeft === 0) return evaluateBoard();
+function findWinningPath(player) {
+  const size = BOARD_SIZE;
+  const visited = Array(size)
+    .fill(null)
+    .map(() => Array(size).fill(false));
+  const parent = Array(size)
+    .fill(null)
+    .map(() => Array(size).fill(null));
 
-            const player = isMaximizing ? currentPlayer : getOpponent(currentPlayer);
-            const moves = getValidMoves();
+  // DFS modificado para rastrear o caminho
+  function dfs(row, col, targetCondition) {
+    if (targetCondition(row, col)) {
+      return reconstructPath(row, col, parent);
+    }
 
-            if (isMaximizing) {
-                let maxScore = -Infinity;
-                for (const move of moves) {
-                    board[move.row][move.col] = player;
-                    const score = alphaBeta(depthLeft - 1, alpha, beta, false);
-                    board[move.row][move.col] = null;
-                    
-                    maxScore = Math.max(maxScore, score);
-                    alpha = Math.max(alpha, score);
-                    
-                    // Poda Beta: corta ramo se beta <= alpha
-                    if (beta <= alpha) break;
-                }
-                return maxScore;
-            } else {
-                let minScore = Infinity;
-                for (const move of moves) {
-                    board[move.row][move.col] = player;
-                    const score = alphaBeta(depthLeft - 1, alpha, beta, true);
-                    board[move.row][move.col] = null;
-                    
-                    minScore = Math.min(minScore, score);
-                    beta = Math.min(beta, score);
-                    
-                    // Poda Alpha: corta ramo se beta <= alpha
-                    if (beta <= alpha) break;
-                }
-                return minScore;
-            }
-        }
+    visited[row][col] = true;
+    const neighbors = getNeighbors(row, col);
 
-        /**
-         * Função heurística de avaliação do tabuleiro
-         * Avalia a "qualidade" de um estado sem busca completa
-         */
-        function evaluateBoard() {
-            const currentConnectivity = calculateConnectivity(currentPlayer);
-            const opponentConnectivity = calculateConnectivity(getOpponent(currentPlayer));
-            return currentConnectivity - opponentConnectivity;
-        }
+    for (const n of neighbors) {
+      if (!visited[n.row][n.col] && board[n.row][n.col] === player) {
+        parent[n.row][n.col] = { row, col };
+        const path = dfs(n.row, n.col, targetCondition);
+        if (path) return path;
+      }
+    }
+    return null;
+  }
 
-        /**
-         * Calcula conectividade e posição estratégica de um jogador
-         * @param {string} player - Jogador a avaliar
-         */
-        function calculateConnectivity(player) {
-            let score = 0;
-            
-            for (let row = 0; row < BOARD_SIZE; row++) {
-                for (let col = 0; col < BOARD_SIZE; col++) {
-                    if (board[row][col] === player) {
-                        // Conta vizinhos conectados (importante para formar caminhos)
-                        const neighbors = getNeighbors(row, col);
-                        score += neighbors.filter(n => board[n.row][n.col] === player).length * 10;
-                        
-                        // Bonificação por posição central (evita caminhos nas bordas)
-                        if (player === 'blue') {
-                            score += (BOARD_SIZE - Math.abs(col - BOARD_SIZE/2)) * 2;
-                        } else {
-                            score += (BOARD_SIZE - Math.abs(row - BOARD_SIZE/2)) * 2;
-                        }
+  // Azul: esquerda para direita
+  if (player === "blue") {
+    for (let row = 0; row < size; row++) {
+      if (board[row][0] === player) {
+        visited.forEach((r) => r.fill(false));
+        parent.forEach((r) => r.fill(null));
+        const path = dfs(row, 0, (r, c) => c === size - 1);
+        if (path) return path;
+      }
+    }
+  }
+  // Vermelho: cima para baixo
+  else {
+    for (let col = 0; col < size; col++) {
+      if (board[0][col] === player) {
+        visited.forEach((r) => r.fill(false));
+        parent.forEach((r) => r.fill(null));
+        const path = dfs(0, col, (r, c) => r === size - 1);
+        if (path) return path;
+      }
+    }
+  }
 
-                        // Bonificação por progresso em direção ao objetivo
-                        if (player === 'blue') {
-                            score += col * 3; // Mais à direita = melhor
-                        } else {
-                            score += row * 3; // Mais abaixo = melhor
-                        }
-                    }
-                }
-            }
-            
-            return score;
-        }
+  return [];
+}
 
-        // ============================================
-        // FUNÇÕES AUXILIARES
-        // ============================================
+function reconstructPath(row, col, parent) {
+  const path = [];
+  let current = { row, col };
 
-        /**
-         * Retorna todos os movimentos válidos
-         */
-        function getValidMoves() {
-            const moves = [];
-            for (let row = 0; row < BOARD_SIZE; row++) {
-                for (let col = 0; col < BOARD_SIZE; col++) {
-                    if (!board[row][col]) {
-                        moves.push({ row, col });
-                    }
-                }
-            }
-            return moves;
-        }
+  while (current) {
+    path.unshift(current);
+    current = parent[current.row][current.col];
+  }
 
-        /**
-         * Retorna vizinhos de uma célula hexagonal
-         * No padrão HEX, cada célula tem 6 vizinhos
-         */
-        function getNeighbors(row, col) {
-            const neighbors = [
-                { row: row - 1, col: col },     // Superior
-                { row: row - 1, col: col + 1 }, // Superior-direita
-                { row: row, col: col - 1 },     // Esquerda
-                { row: row, col: col + 1 },     // Direita
-                { row: row + 1, col: col - 1 }, // Inferior-esquerda
-                { row: row + 1, col: col }      // Inferior
-            ];
-            return neighbors.filter(n => 
-                n.row >= 0 && n.row < BOARD_SIZE && 
-                n.col >= 0 && n.col < BOARD_SIZE
-            );
-        }
+  return path;
+}
 
-        /**
-         * Verifica se um jogador venceu
-         */
-        function checkWinner(player) {
-            if (player === 'blue') {
-                return hasPathLeftToRight(player);
-            } else {
-                return hasPathTopToBottom(player);
-            }
-        }
+function getNeighbors(row, col) {
+  const directions = [
+    [-1, 0],
+    [-1, 1],
+    [0, -1],
+    [0, 1],
+    [1, -1],
+    [1, 0],
+  ];
 
-        /**
-         * Verifica se existe caminho da esquerda para direita (jogador azul)
-         */
-        function hasPathLeftToRight(player) {
-            const visited = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
-            
-            // Tenta iniciar DFS de cada célula da borda esquerda
-            for (let row = 0; row < BOARD_SIZE; row++) {
-                if (board[row][0] === player && dfsLR(row, 0, player, visited)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+  const neighbors = [];
+  for (const [dr, dc] of directions) {
+    const newRow = row + dr;
+    const newCol = col + dc;
+    if (
+      newRow >= 0 &&
+      newRow < BOARD_SIZE &&
+      newCol >= 0 &&
+      newCol < BOARD_SIZE
+    ) {
+      neighbors.push({ row: newRow, col: newCol });
+    }
+  }
+  return neighbors;
+}
 
-        /**
-         * DFS (busca em profundidade) para encontrar caminho esquerda-direita
-         */
-        function dfsLR(row, col, player, visited) {
-            if (col === BOARD_SIZE - 1) return true; // Chegou à borda direita
-            visited[row][col] = true;
+// ============================================
+// INTEGRAÇÃO COM BACKEND GO
+// ============================================
 
-            const neighbors = getNeighbors(row, col);
-            for (const n of neighbors) {
-                if (!visited[n.row][n.col] && board[n.row][n.col] === player) {
-                    if (dfsLR(n.row, n.col, player, visited)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
+async function aiMove() {
+  if (!serverConnected || aiProcessing) return;
 
-        /**
-         * Verifica se existe caminho de cima para baixo (jogador vermelho)
-         */
-        function hasPathTopToBottom(player) {
-            const visited = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
-            
-            // Tenta iniciar DFS de cada célula da borda superior
-            for (let col = 0; col < BOARD_SIZE; col++) {
-                if (board[0][col] === player && dfsTB(0, col, player, visited)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+  aiProcessing = true;
+  document.getElementById("aiTime").textContent = "Processando...";
+  renderBoard();
 
-        /**
-         * DFS (busca em profundidade) para encontrar caminho cima-baixo
-         */
-        function dfsTB(row, col, player, visited) {
-            if (row === BOARD_SIZE - 1) return true; // Chegou à borda inferior
-            visited[row][col] = true;
+  try {
+    const response = await fetch(`${API_URL}/ai-move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        board: board,
+        player: currentPlayer,
+        algorithm: aiAlgorithm,
+        depth: depth,
+      }),
+    });
 
-            const neighbors = getNeighbors(row, col);
-            for (const n of neighbors) {
-                if (!visited[n.row][n.col] && board[n.row][n.col] === player) {
-                    if (dfsTB(n.row, n.col, player, visited)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
+    if (!response.ok) {
+      throw new Error("Erro na resposta do servidor");
+    }
 
-        /**
-         * Retorna o vencedor atual (ou null se não houver)
-         */
-        function getWinner() {
-            if (hasPathLeftToRight('blue')) return 'blue';
-            if (hasPathTopToBottom('red')) return 'red';
-            return null;
-        }
+    const data = await response.json();
 
-        /**
-         * Retorna o oponente de um jogador
-         */
-        function getOpponent(player) {
-            return player === 'blue' ? 'red' : 'blue';
-        }
+    document.getElementById("nodesExplored").textContent =
+      data.nodesExplored.toLocaleString("pt-BR");
+    document.getElementById("aiTime").textContent = data.timeMs + " ms";
+    document.getElementById("aiScore").textContent = data.score;
 
-        // ============================================
-        // INTERFACE E CONTROLES
-        // ============================================
+    aiProcessing = false;
 
-        /**
-         * Mostra modal de vitória
-         */
-        function showWinner(winner) {
-            const winnerText = winner === 'blue' ? '🎉 Jogador Azul Venceu!' : '🎉 Jogador Vermelho Venceu!';
-            document.getElementById('winnerText').textContent = winnerText;
-            document.getElementById('winnerStats').textContent = 
-                `Jogadas: ${moveCount} | Nós Explorados: ${nodesExplored}`;
-            document.getElementById('winnerModal').style.display = 'flex';
-        }
+    if (data.move && gameActive) {
+      await makeMove(data.move.row, data.move.col);
+    }
+  } catch (error) {
+    console.error("Erro ao comunicar com servidor:", error);
+    aiProcessing = false;
+    document.getElementById("aiTime").textContent = "Erro!";
+    alert(
+      "Erro ao conectar com servidor Go. Verifique se está rodando em localhost:8080"
+    );
+    serverConnected = false;
+    updateServerStatus("error");
+  }
+}
 
-        /**
-         * Fecha modal e inicia novo jogo
-         */
-        function closeModal() {
-            document.getElementById('winnerModal').style.display = 'none';
-            startGame();
-        }
+async function checkWinnerAPI() {
+  try {
+    const response = await fetch(`${API_URL}/check-winner`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        size: BOARD_SIZE,
+        cells: board,
+      }),
+    });
 
-        /**
-         * Atualiza informações de status na interface
-         */
-        function updateStatus() {
-            document.getElementById('currentPlayer').textContent = 
-                currentPlayer === 'blue' ? 'Azul' : 'Vermelho';
-            document.getElementById('moveCount').textContent = moveCount;
-        }
+    if (response.ok) {
+      const data = await response.json();
+      return data.winner || null;
+    }
+  } catch (error) {
+    console.error("Erro ao verificar vencedor:", error);
+  }
+  return null;
+}
 
-        /**
-         * Inicia um novo jogo
-         */
-        function startGame() {
-            initBoard();
-            // Se modo IA vs IA, inicia automaticamente
-            if (gameMode === 'cvc') {
-                setTimeout(aiMove, 1000);
-            }
-        }
+// ============================================
+// INTERFACE E CONTROLES
+// ============================================
 
-        /**
-         * Reinicia o jogo atual
-         */
-        function resetGame() {
-            startGame();
-        }
+function showWinner(winner) {
+  const winnerText =
+    winner === "blue"
+      ? "🎉 Jogador Azul Venceu!"
+      : "🎉 Jogador Vermelho Venceu!";
+  document.getElementById("winnerText").textContent = winnerText;
 
-        // ============================================
-        // INICIALIZAÇÃO
-        // ============================================
+  const nodesText = document.getElementById("nodesExplored").textContent;
+  const pathLength = winningPath.length;
+  document.getElementById(
+    "winnerStats"
+  ).textContent = `Jogadas: ${moveCount} | Caminho: ${pathLength} células | Nós: ${nodesText} | Algoritmo: ${
+    aiAlgorithm === "alphabeta" ? "Alfa-Beta" : "Minimax"
+  }`;
 
-        /**
-         * Inicializa o jogo quando a página carrega
-         */
-        window.onload = () => {
-            initBoard();
-            console.log('🎮 HEX Game inicializado - Tabuleiro 7x7');
-            console.log('🧠 Algoritmos disponíveis: Minimax e Alfa-Beta');
-        };
+  document.getElementById("winnerModal").style.display = "flex";
+}
+
+function closeModal() {
+  document.getElementById("winnerModal").style.display = "none";
+  startGame();
+}
+
+function updateStatus() {
+  document.getElementById("currentPlayer").textContent =
+    currentPlayer === "blue" ? "Azul" : "Vermelho";
+  document.getElementById("moveCount").textContent = moveCount;
+}
+
+async function startGame() {
+  if (!serverConnected) {
+    const connected = await checkServerConnection();
+    if (!connected) {
+      alert(
+        "Servidor Go não está rodando!\n\nPara iniciar:\n1. Abra terminal na pasta do projeto\n2. Execute: cd server\n3. Execute: go run main.go\n4. Recarregue esta página"
+      );
+      return;
+    }
+  }
+
+  initBoard();
+
+  if (gameMode === "cvc") {
+    setTimeout(aiMove, 1000);
+  }
+}
+
+function resetGame() {
+  startGame();
+}
+
+// ============================================
+// INICIALIZAÇÃO
+// ============================================
+
+window.onload = async () => {
+  console.log("🎮 HEX Game inicializado - Tabuleiro 7x7");
+  console.log("✨ Caminho vencedor animado ativado!");
+  console.log("🔗 Verificando conexão com servidor Go...");
+
+  initBoard();
+  await checkServerConnection();
+
+  if (serverConnected) {
+    console.log("✅ Servidor Go conectado!");
+  } else {
+    console.log(
+      "❌ Servidor Go não encontrado. Execute: go run server/main.go"
+    );
+  }
+};

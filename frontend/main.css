@@ -96,10 +96,15 @@ input:focus {
   color: white;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: #1e3c72;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(42, 82, 152, 0.4);
+}
+
+.btn-primary:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
@@ -139,6 +144,25 @@ input:focus {
 .status-value {
   font-weight: 600;
   color: #333;
+}
+
+.server-status {
+  background: #fff3cd;
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  border-left: 4px solid #ffc107;
+  font-size: 0.9em;
+}
+
+.server-status.connected {
+  background: #d4edda;
+  border-left-color: #28a745;
+}
+
+.server-status.error {
+  background: #f8d7da;
+  border-left-color: #dc3545;
 }
 
 .board-container {
@@ -190,18 +214,58 @@ input:focus {
   stroke: #000;
 }
 
+/* NOVO: Estilos para caminho vencedor */
+.hex.winning-path .hex-polygon {
+  stroke: #ffd700;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 8px #ffd700);
+}
+
+.hex.winning-path.blue .hex-polygon {
+  fill: #2980b9;
+  animation: pulseBlue 1.5s ease-in-out infinite;
+}
+
+.hex.winning-path.red .hex-polygon {
+  fill: #c0392b;
+  animation: pulseRed 1.5s ease-in-out infinite;
+}
+
+@keyframes pulseBlue {
+  0%,
+  100% {
+    fill: #2980b9;
+    transform: scale(1);
+  }
+  50% {
+    fill: #3498db;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes pulseRed {
+  0%,
+  100% {
+    fill: #c0392b;
+    transform: scale(1);
+  }
+  50% {
+    fill: #e74c3c;
+    transform: scale(1.1);
+  }
+}
+
 .hex.disabled {
   cursor: not-allowed;
 }
 
 .hex.disabled:hover .hex-polygon {
-  fill: #f0f0f0;
+  fill: inherit;
   stroke-width: 2;
 }
 
 .border-indicator {
   position: absolute;
-  background: rgba(0, 0, 0, 0.1);
   pointer-events: none;
 }
 
@@ -301,6 +365,18 @@ input:focus {
   border-radius: 20px;
   text-align: center;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .winner-content h2 {
@@ -313,6 +389,39 @@ input:focus {
   font-size: 1.2em;
   color: #666;
   margin-bottom: 30px;
+}
+
+.info-section {
+  background: #e8f4f8;
+  padding: 15px;
+  border-radius: 10px;
+  margin-top: 20px;
+  font-size: 0.85em;
+  color: #555;
+  line-height: 1.6;
+}
+
+.info-section strong {
+  color: #1e3c72;
+}
+
+.loading {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #2a5298;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 1024px) {
