@@ -404,7 +404,7 @@ Este projeto está sob a licença **MIT**. Veja o arquivo `LICENSE` para mais de
 Desenvolvido com ☕ e 💙
 
 - GitHub: [@natsalete](https://github.com/natsalete)
-- LinkedIn: [Natália Santos](https://www.linkedin.com/in/natalia-salete-rodrigues/)
+- LinkedIn: [Natália Salete](https://www.linkedin.com/in/natalia-salete-rodrigues/)
 - Email: natsalete14@gmail.com
 
 ---
@@ -432,4 +432,5 @@ Para reportar bugs ou solicitar features:
 ![Go](https://img.shields.io/badge/Powered%20by-Go-00ADD8)
 
 </div>
+
 
